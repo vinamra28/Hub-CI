@@ -4,3 +4,5 @@ CI:
   - ./*
 CI-API:
   - any: ["api/**/*"]
+Actions:
+  - any: [".github/**/*"]
