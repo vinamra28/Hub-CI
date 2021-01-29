@@ -1,0 +1,212 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: ui-pipeline
+spec:
+  params:
+    - name: IMAGE
+    - name: TAG
+    - name: HUB_NAMESPACE
+  workspaces:
+    - name: shared-workspace
+    - name: kubeconfig-dir
+    - name: token
+  tasks:
+    - name: fetch-repository
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+      params:
+        - name: url
+          value: https://github.com/vinamra28/hub
+        - name: subdirectory
+          value: ""
+        - name: deleteExisting
+          value: "true"
+        - name: revision
+          value: test-ci
+    - name: install-dependencies
+      taskRef:
+        name: npm
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: PATH_CONTEXT
+          value: "ui"
+        - name: ARGS
+          value:
+            - clean-install
+      runAfter:
+        - fetch-repository
+    - name: run-lint
+      taskRef:
+        name: npm
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: PATH_CONTEXT
+          value: "ui"
+        - name: ARGS
+          value:
+            - run
+            - lint
+      runAfter:
+        - install-dependencies
+    - name: build-test
+      taskRef:
+        name: npm
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: PATH_CONTEXT
+          value: "ui"
+        - name: ARGS
+          value:
+            - run
+            - build
+      runAfter:
+        - run-lint
+    - name: unit-test
+      taskRef:
+        name: npm
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: PATH_CONTEXT
+          value: "ui"
+        - name: ARGS
+          value:
+            - run
+            - test
+      runAfter:
+        - run-lint
+    - name: find-coverage
+      runAfter:
+        - run-lint
+      taskRef:
+        name: npm
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: PATH_CONTEXT
+          value: "ui"
+        - name: ARGS
+          value:
+            - run
+            - test
+            - --
+            - --coverage
+    - name: upload-coverage
+      taskRef:
+        name: codecov
+      runAfter:
+        - find-coverage
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: args
+          value:
+            - -f
+            - ui/coverage/clover.xml
+        - name: codecov-token-secret
+          value: codecov
+        - name: codecov-token-secret-key
+          value: codecov
+    - name: build-push-image
+      taskRef:
+        name: buildah
+      runAfter:
+        - "build-test"
+        - "unit-test"
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE):$(params.TAG)
+        - name: CONTEXT
+          value: "ui"
+        - name: FORMAT
+          value: "docker"
+    - name: check-ui-deployment
+      taskRef:
+        name: kubernetes-actions
+      params:
+        - name: script
+          value: |
+            kubectl describe deployment ui -n "$(params.HUB_NAMESPACE)" >/dev/null 2>/dev/null
+            if [[ $? -eq 0 ]]; then
+              printf yes | tee /tekton/results/output-result
+            else
+              printf no | tee /tekton/results/output-result
+            fi
+      runAfter:
+        - build-push-image
+      workspaces:
+        - name: kubeconfig-dir
+          workspace: kubeconfig-dir
+    - name: patch-ui-image
+      taskRef:
+        name: kubernetes-actions
+      params:
+        - name: script
+          value: |
+            kubectl patch deployment ui --patch='{"spec":{"template":{"spec":{
+              "containers":[{
+                "name": "ui",
+                "image": "$(params.IMAGE):$(params.TAG)"
+              }]
+            }}}}' -n $(params.HUB_NAMESPACE)
+      when:
+        - input: "$(tasks.check-ui-deployment.results.output-result)"
+          operator: in
+          values: ["yes"]
+      workspaces:
+        - name: kubeconfig-dir
+          workspace: kubeconfig-dir
+    - name: replace-config-token
+      taskRef:
+        name: replace-tokens
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+        - name: token
+          workspace: token
+      params:
+        - name: inputFilePath
+          value: ui/config/10-config.yaml
+      when:
+        - input: "$(tasks.check-ui-deployment.results.output-result)"
+          operator: in
+          values: ["no"]
+    - name: create-deployment
+      taskRef:
+        name: kubernetes-actions
+      runAfter:
+        - replace-config-token
+      params:
+        - name: script
+          value: |
+            kubectl apply --filename ui/config
+            kubectl apply --filename ui/config/openshift
+            # patch the latest built image
+            kubectl patch deployment ui --patch='{"spec":{"template":{"spec":{
+              "containers":[{
+                "name": "ui",
+                "image": "$(params.IMAGE):$(params.TAG)"
+              }]
+            }}}}' -n $(params.HUB_NAMESPACE)
+
+      workspaces:
+        - name: manifest-dir
+          workspace: shared-workspace
+        - name: kubeconfig-dir
+          workspace: kubeconfig-dir

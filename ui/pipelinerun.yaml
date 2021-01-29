@@ -1,9 +1,11 @@
 apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
-  name: npm-run
+  generateName: ui-deploy-
 spec:
   serviceAccountName: quay-login
+  pipelineRef:
+    name: ui-pipeline
   params:
     - name: IMAGE
       value: quay.io/vinamra2807/ui
@@ -20,125 +22,9 @@ spec:
           resources:
             requests:
               storage: 10Gi
-    - name: manifest-dir
-      emptyDir: {}
     - name: kubeconfig-dir
       configMap:
         name: kubeconfig
-  pipelineSpec:
-    params:
-      - name: IMAGE
-      - name: TAG
-      - name: HUB_NAMESPACE
-    workspaces:
-      - name: shared-workspace
-      - name: manifest-dir
-      - name: kubeconfig-dir
-    tasks:
-      - name: fetch-repository
-        taskRef:
-          name: git-clone
-        workspaces:
-          - name: output
-            workspace: shared-workspace
-        params:
-          - name: url
-            value: https://github.com/tektoncd/hub
-          - name: subdirectory
-            value: ""
-          - name: deleteExisting
-            value: "true"
-      - name: install-dependencies
-        taskRef:
-          name: npm
-        workspaces:
-          - name: source
-            workspace: shared-workspace
-        params:
-          - name: PATH_CONTEXT
-            value: "ui"
-          - name: ARGS
-            value:
-              - clean-install
-        runAfter:
-          - fetch-repository
-      - name: run-lint
-        taskRef:
-          name: npm
-        workspaces:
-          - name: source
-            workspace: shared-workspace
-        params:
-          - name: PATH_CONTEXT
-            value: "ui"
-          - name: ARGS
-            value:
-              - run
-              - lint
-        runAfter:
-          - install-dependencies
-      - name: build-test
-        taskRef:
-          name: npm
-        workspaces:
-          - name: source
-            workspace: shared-workspace
-        params:
-          - name: PATH_CONTEXT
-            value: "ui"
-          - name: ARGS
-            value:
-              - run
-              - build
-        runAfter:
-          - run-lint
-      - name: unit-test
-        taskRef:
-          name: npm
-        workspaces:
-          - name: source
-            workspace: shared-workspace
-        params:
-          - name: PATH_CONTEXT
-            value: "ui"
-          - name: ARGS
-            value:
-              - run
-              - test
-        runAfter:
-          - run-lint
-      - name: build-push-image
-        taskRef:
-          name: buildah
-        runAfter:
-          - "build-test"
-          - "unit-test"
-        workspaces:
-          - name: source
-            workspace: shared-workspace
-        params:
-          - name: IMAGE
-            value: $(params.IMAGE):$(params.TAG)
-          - name: CONTEXT
-            value: "ui"
-          - name: FORMAT
-            value: "docker"
-      - name: patch-ui-image
-        taskRef:
-          name: kubernetes-actions
-        params:
-          - name: script
-            value: |
-              kubectl patch deployment ui --patch='{"spec":{"template":{"spec":{
-                "containers":[{
-                  "name": ui,
-                  "image": $(params.IMAGE):$(params.TAG)
-                }]
-              }}}}' -n $(params.HUB_NAMESPACE)
-        runAfter:
-          - build-push-image
-        workspaces:
-          - name: manifest-dir
-            workspace: manifest-dir
-          - name: kubeconfig-dir
-            workspace: kubeconfig-dir
+    - name: token
+      configMap:
+        name: tokens-configmap
