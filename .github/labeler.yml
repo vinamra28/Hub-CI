@@ -1,0 +1,6 @@
+CI-UI:
+  - any: ["ui/**/*"]
+CI:
+  - ./*
+CI-API:
+  - any: ["api/**/*"]
