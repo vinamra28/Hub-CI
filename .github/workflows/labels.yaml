@@ -10,7 +10,7 @@ on:
 
 jobs:
   update_labels:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v2
 
@@ -27,7 +27,7 @@ jobs:
           github_token: ${{ secrets.TOKEN }}
           labels: ${{ steps.size.outputs.new_label }}
   add_labels:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v2
       - uses: actions-ecosystem/action-add-labels@v1
@@ -39,7 +39,7 @@ jobs:
             changelog
             CI
   triage:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - uses: actions/labeler@main
         with:
