@@ -1,8 +1,12 @@
 name: Size
 
 on:
-  pull_request:
-    types: [opened, synchronize]
+  pull_request_target:
+    types: [opened, edited, closed, reopened, ready_for_review, synchronize]
+  issues:
+    types: [opened, edited, closed, reopened]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
 
 jobs:
   update_labels:
@@ -22,3 +26,22 @@ jobs:
         with:
           github_token: ${{ secrets.TOKEN }}
           labels: ${{ steps.size.outputs.new_label }}
+  add_labels:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-ecosystem/action-add-labels@v1
+        if: ${{ startsWith(github.event.comment.body, '/add-labels') }}
+        with:
+          github_token: ${{ secrets.TOKEN }}
+          labels: |
+            documentation
+            changelog
+            CI
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@main
+        with:
+          repo-token: ${{ secrets.TOKEN }}
+          sync-labels: "true"
