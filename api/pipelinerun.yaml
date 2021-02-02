@@ -1,0 +1,95 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  name: api
+spec:
+  serviceAccountName: quay-login
+  params:
+    - name: IMAGE
+      value: quay.io/sm43/cicd-api
+    - name: TAG
+      value: v1
+  workspaces:
+    - name: shared-workspace
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 3Gi
+  pipelineSpec:
+    params:
+      - name: IMAGE
+      - name: TAG  
+    workspaces:
+      - name: shared-workspace
+    tasks:
+      - name: fetch-repository
+        taskRef:
+          name: git-clone
+        workspaces:
+          - name: output
+            workspace: shared-workspace
+        params:
+          - name: url
+            value: https://github.com/sm43/hub
+          - name: subdirectory
+            value: ""
+          - name: deleteExisting
+            value: "true"
+          - name: revision
+            value: cicd
+      # - name: lint
+      #   taskRef:
+      #     name: golangci-lint
+      #   workspaces:
+      #     - name: source
+      #       workspace: shared-workspace
+      #   params:
+      #     - name: package
+      #       value: github.com/tektoncd/hub
+      #     - name: path_context
+      #       value: "api"
+      #     - name: flags
+      #       value: "-v --timeout 10m"
+      #     - name: version
+      #       value: v1.31.0
+      #   runAfter:
+      #     - fetch-repository
+      # - name: unit-test
+      #   taskRef:
+      #     name: golang-test
+      #   workspaces:
+      #     - name: source
+      #       workspace: shared-workspace
+      #   params:
+      #     - name: package
+      #       value: github.com/sm43/hub
+      #     - name: packages
+      #       value: ./pkg/...
+      #     - name: path_context
+      #       value: api
+      #     - name: flags
+      #       value: "-p 1 -v --timeout 10m"
+      #   runAfter:
+      #     - fetch-repository
+      - name: build-push-image
+        taskRef:
+          name: buildah
+        workspaces:
+          - name: source
+            workspace: shared-workspace
+        params:
+          - name: IMAGE
+            value: $(params.IMAGE):$(params.TAG)
+          - name: CONTEXT
+            value: "api"
+          - name: FORMAT
+            value: "docker"
+        runAfter:
+          - fetch-repository
+  
+
+
+
