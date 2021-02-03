@@ -9,6 +9,8 @@ spec:
       value: quay.io/sm43/cicd-api
     - name: TAG
       value: v1
+    - name: HUB_NAMESPACE
+      value: tekton-hub
   workspaces:
     - name: shared-workspace
       volumeClaimTemplate:
@@ -22,6 +24,7 @@ spec:
     params:
       - name: IMAGE
       - name: TAG  
+      - name: HUB_NAMESPACE
     workspaces:
       - name: shared-workspace
     tasks:
@@ -57,7 +60,24 @@ spec:
       #       value: v1.31.0
       #   runAfter:
       #     - fetch-repository
-      # - name: unit-test
+      - name: unit-test
+        taskRef:
+          name: golang-db-test
+        workspaces:
+          - name: source
+            workspace: shared-workspace
+        params:
+          - name: package
+            value: github.com/sm43/hub
+          - name: packages
+            value: ./pkg/...
+          - name: path_context
+            value: api
+          - name: flags
+            value: "-p 1 -v --timeout 10m -race -coverprofile=coverage.txt -covermode=atomic"
+        runAfter:
+          - fetch-repository
+      # - name: find-coverage
       #   taskRef:
       #     name: golang-test
       #   workspaces:
@@ -65,15 +85,26 @@ spec:
       #       workspace: shared-workspace
       #   params:
       #     - name: package
-      #       value: github.com/sm43/hub
-      #     - name: packages
-      #       value: ./pkg/...
+      #       value: github.com/tektoncd/hub
       #     - name: path_context
       #       value: api
       #     - name: flags
-      #       value: "-p 1 -v --timeout 10m"
+      #       value: "-race -coverprofile=coverage.txt -covermode=atomic"
       #   runAfter:
       #     - fetch-repository
+      - name: upload-coverage
+        taskRef:
+          name: codecov
+        params:
+          - name: args
+            value:
+              - -f
+              - api/coverage.txt
+        workspaces:
+          - name: source
+            workspace: shared-workspace
+        runAfter:
+          - unit-test
       - name: build-push-image
         taskRef:
           name: buildah
@@ -88,8 +119,55 @@ spec:
           - name: FORMAT
             value: "docker"
         runAfter:
-          - fetch-repository
-  
-
+          - upload-coverage
+      # - name: check-api-deployment
+      #   taskRef:
+      #     name: kubernetes-actions
+      #   params:
+      #     - name: script
+      #       value: |
+      #         kubectl describe deployment api -n "$(params.HUB_NAMESPACE)" >/dev/null 2>/dev/null
+      #         if [[ $? -eq 0 ]]; then
+      #           printf yes | tee /tekton/results/output-result
+      #         else
+      #           printf no | tee /tekton/results/output-result
+      #         fi
+      #   runAfter:
+      #     - build-push-image  
+      # - name: patch-api-image
+      #   taskRef:
+      #     name: kubernetes-actions
+      #   params:
+      #     - name: script
+      #       value: |
+      #         kubectl patch deployment api --patch='{"spec":{"template":{"spec":{
+      #           "containers":[{
+      #             "name": "api",
+      #             "image": "$(params.IMAGE):$(params.TAG)"
+      #           }]
+      #         }}}}' -n $(params.HUB_NAMESPACE)
+      #   when:
+      #     - input: "$(tasks.check-api-deployment.results.output-result)"
+      #       operator: in
+      #       values: ["yes"]
+      #   runAfter:
+      #     - check-api-deployment 
+      # - name: create-deployment
+      #   taskRef:
+      #     name: kubernetes-actions
+      #   params:
+      #     - name: script
+      #       value: |
+      #         kubectl apply --filename ui/config
+      #         kubectl apply --filename ui/config/openshift
+      #         # patch the latest built image
+      #         kubectl patch deployment ui --patch='{"spec":{"template":{"spec":{
+      #           "containers":[{
+      #             "name": "ui",
+      #             "image": "$(params.IMAGE):$(params.TAG)"
+      #           }]
+      #         }}}}' -n $(params.HUB_NAMESPACE)
+      #   runAfter:
+      #     - patch-api-image  
 
 
