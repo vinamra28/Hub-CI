@@ -13,6 +13,8 @@ spec:
       value: v1
     - name: HUB_NAMESPACE
       value: tekton-hub
+    - name: K8S_VARIANT #it will accept either openshift or kubernetes
+      value: openshift
   workspaces:
     - name: shared-workspace
       volumeClaimTemplate:
