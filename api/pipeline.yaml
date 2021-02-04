@@ -4,7 +4,8 @@ metadata:
   name: api-deploy
 spec:
   params:
-    - name: IMAGE
+    - name: API_IMAGE
+    - name: DB_MIGRATION_IMAGE
     - name: TAG
     - name: HUB_NAMESPACE
     - name: K8S_VARIANT
@@ -71,13 +72,46 @@ spec:
           workspace: shared-workspace
       params:
         - name: IMAGE
-          value: $(params.IMAGE):$(params.TAG)
+          value: $(params.API_IMAGE):$(params.TAG)
         - name: CONTEXT
           value: "api"
         - name: FORMAT
           value: "docker"
       runAfter:
         - unit-test
+    - name: build-push-migration-image
+      taskRef:
+        name: buildah
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: IMAGE
+          value: $(params.DB_MIGRATION_IMAGE):$(params.TAG)
+        - name: CONTEXT
+          value: "api"
+        - name: FORMAT
+          value: "docker"
+        - name: DOCKERFILE
+          value: ./db.Dockerfile
+      runAfter:
+        - unit-test
+    - name: create-new-migration-job
+      taskRef:
+        name: kubernetes-actions
+      params:
+        - name: script
+          value: |
+            kubectl delete job db-migration --ignore-not-found
+            kubectl create namespace $(params.HUB_NAMESPACE)
+            kubectl apply -n $(params.HUB_NAMESPACE) -f <(sed "s@image:.*@image: $(params.DB_MIGRATION_IMAGE):$(params.TAG)@" api/config/20-db-migration.yaml)
+      workspaces:
+        - name: kubeconfig-dir
+          workspace: kubeconfig-dir
+        - name: manifest-dir
+          workspace: shared-workspace
+      runAfter:
+        - build-push-migration-image
     - name: check-api-deployment
       taskRef:
         name: kubernetes-actions
@@ -91,6 +125,7 @@ spec:
               printf no | tee /tekton/results/output-result
             fi
       runAfter:
+        - create-new-migration-job
         - build-push-image
       workspaces:
         - name: kubeconfig-dir
@@ -104,7 +139,7 @@ spec:
             kubectl patch deployment api --patch='{"spec":{"template":{"spec":{
               "containers":[{
                 "name": "api",
-                "image": "$(params.IMAGE):$(params.TAG)"
+                "image": "$(params.API_IMAGE):$(params.TAG)"
               }]
             }}}}' -n $(params.HUB_NAMESPACE)
       when:
@@ -150,7 +185,7 @@ spec:
             kubectl patch deployment api --patch='{"spec":{"template":{"spec":{
               "containers":[{
                 "name": "api",
-                "image": "$(params.IMAGE):$(params.TAG)"
+                "image": "$(params.API_IMAGE):$(params.TAG)"
               }]
             }}}}' -n $(params.HUB_NAMESPACE)
       runAfter:

@@ -5,13 +5,15 @@ metadata:
 spec:
   serviceAccountName: quay-login
   params:
-    - name: IMAGE
+    - name: API_IMAGE
       value: quay.io/vinamra2807/cicd-api
+    - name: DB_MIGRATION_IMAGE
+      value: quay.io/vinamra2807/cicd-db
     - name: TAG
       value: v1
     - name: HUB_NAMESPACE
       value: tekton-hub
-    - name: k8S_VARIANT #it will accept either openshift or kubernetes
+    - name: K8S_VARIANT #it will accept either openshift or kubernetes
       value: openshift
   workspaces:
     - name: shared-workspace
