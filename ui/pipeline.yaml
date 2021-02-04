@@ -7,6 +7,7 @@ spec:
     - name: IMAGE
     - name: TAG
     - name: HUB_NAMESPACE
+    - name: K8S_VARIANT
   workspaces:
     - name: shared-workspace
     - name: kubeconfig-dir
@@ -197,7 +198,9 @@ spec:
         - name: script
           value: |
             kubectl apply --filename ui/config
-            kubectl apply --filename ui/config/openshift
+            [[ "$(params.K8S_VARIANT)" == "openshift" ]] && \
+            kubectl apply --filename ui/config/openshift || \
+            kubectl apply --filename ui/config/post-deploy
             # patch the latest built image
             kubectl patch deployment ui --patch='{"spec":{"template":{"spec":{
               "containers":[{
